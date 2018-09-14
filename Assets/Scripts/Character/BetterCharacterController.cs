@@ -16,13 +16,18 @@ public class BetterCharacterController : MonoBehaviour {
     public float platformRisingSpeed = 1;
     public float maxStairHeight = 0.3f;
     [Tooltip("Divide the stair checks into this many cubes to increase accuracy")]
-    public float numStairChecks = 1; //Todo: implement this
+    public float numStairChecks = 2; //use at least 2 for proper results
     [Tooltip("When climbing, this is the angle the stair check should be. The character will move at this angle when climbing stairs.")]
-    public float stairClimbAngle = 45;
+    public float stairClimbAngle = 45; // For best results this should be equal to or less than slopeLimit
     [HideInInspector]
     [System.NonSerialized]
     public bool isGrounded;
+    public float onStairsDelayBeforeFalling = 0.1f;
+    private float onStairsFallDelayTimer = 0;
     private float cosSlopeLimit;
+    private float sinStairClimbAngle;
+    private float cosStairClimbAngle;
+    private float tanStairClimbAngle;
 
     public delegate void CollisionEvent(Vector3 impactPoint, Vector3 normal, Collider collider);
     public event CollisionEvent OnMoveGroundCollision;
@@ -33,8 +38,10 @@ public class BetterCharacterController : MonoBehaviour {
     // Use this for initialization
     void Start () {
         cosSlopeLimit = Mathf.Cos(slopeLimit * Mathf.Deg2Rad);
+        sinStairClimbAngle = Mathf.Sin(stairClimbAngle * Mathf.Deg2Rad);
+        cosStairClimbAngle = Mathf.Cos(stairClimbAngle * Mathf.Deg2Rad);
+        tanStairClimbAngle = Mathf.Tan(stairClimbAngle * Mathf.Deg2Rad);
         geometryCollisionLayers = 1 << LayerMask.NameToLayer("Geometry");
-
     }
 	
 	// Update is called once per frame
@@ -51,8 +58,17 @@ public class BetterCharacterController : MonoBehaviour {
         //check to see if we're climbing stairs; if so, stay on ground
         if (isGrounded)
         {
-            if (StairClimbSweep(ref lastMoveVector, true))
+            if (StairClimbSweep(ref lastMoveVector, true).Length > 0)
+            {
+                onStairsFallDelayTimer = onStairsDelayBeforeFalling;
                 return;
+            }
+            else
+            {
+                onStairsFallDelayTimer -= Time.fixedDeltaTime;
+                if (onStairsFallDelayTimer > 0)
+                    return;
+            }
         }
 
         float riseAmount = 0;
@@ -148,96 +164,280 @@ public class BetterCharacterController : MonoBehaviour {
                 }
             }
         }
-
+        Vector3[] stairLocations = new Vector3[0];
         // Adjust for climbing stairs
         if (isGrounded)
         {
-            StairClimbSweep(ref newMoveVector, false);
+            stairLocations = StairClimbSweep(ref newMoveVector, false);
         }
+
+        /*float distanceToStairPlanes = newMoveVector.magnitude;
+        foreach (Vector3 stairLocation in stairLocations)
+        {
+            float stairPlaneDistance = SweepToStairClimbPlane(newMoveVector, stairLocation);
+            if (stairPlaneDistance < distanceToStairPlanes)
+                distanceToStairPlanes = stairPlaneDistance;
+        }*/
 
         RaycastHit hitinfo;
         if (Physics.CapsuleCast(capsuleCenter - pointDist * Vector3.down, capsuleCenter - pointDist * Vector3.up, capsuleCollider.radius,
         newMoveVector.normalized, out hitinfo, newMoveVector.magnitude + skinWidth, geometryCollisionLayers))
         {
-            float newSkinWidth = skinWidth / Vector3.Dot(-newMoveVector.normalized, hitinfo.normal);
-            AttemptMove(transform.position + newMoveVector.normalized * (hitinfo.distance - newSkinWidth));
-            Vector3 remainingVector = newMoveVector - newMoveVector.normalized * (hitinfo.distance - newSkinWidth);
-            Vector3 slideVector = Vector3.ProjectOnPlane(remainingVector, hitinfo.normal);
-            if (isGrounded && newMoveVector.y <= 0 && slideVector.y > 0 && Vector3.Dot(hitinfo.normal, Vector3.up) < cosSlopeLimit && Vector3.Dot(hitinfo.normal, Vector3.up) > 0) // If we've hit a steep slope, stop horizontal momentum from turning into additional vertical momentum.
+            if (stairLocations.Length > 0 && Vector3.Dot(newMoveVector.normalized, Vector3.up) < sinStairClimbAngle - 0.001f) // if we hit the stair climbing plane before we hit our target. If our move vector is steeper than the stair climbing angle, disregard.
             {
-                Vector3 crossVector = Vector3.Cross(hitinfo.normal, Vector3.up);
-                slideVector = Vector3.Project(slideVector, crossVector);
+                //Debug.DrawRay(transform.position - (capsuleCollider.height / 2 - 0.01f) * Vector3.down, newMoveVector.normalized * distanceToStairPlanes);
+
+                //AttemptMove(transform.position + newMoveVector.normalized * distanceToStairPlanes);
+                //Vector3 remainingVector = newMoveVector - newMoveVector.normalized * (hitinfo.distance);
+                Vector3 stairSlideVector = GetStairClimbVector(moveVector);
+
+                //Debug.DrawRay(transform.position + (capsuleCollider.height / 2 - 0.01f) * Vector3.down + newMoveVector.normalized * distanceToStairPlanes, stairSlideVector);
+
+                DoMoveSlide(stairSlideVector, MAX_PHYSICS_SLIDE_ITERATIONS, stairLocations, true); // see DoMoveSlide comment
             }
-            if (OnMoveCollision != null)
+            else
             {
-                OnMoveCollision(hitinfo.point, hitinfo.normal, hitinfo.collider);
+                float newSkinWidth = skinWidth / Vector3.Dot(-newMoveVector.normalized, hitinfo.normal);
+                AttemptMove(transform.position + newMoveVector.normalized * (hitinfo.distance - newSkinWidth));
+                Vector3 remainingVector = newMoveVector - newMoveVector.normalized * (hitinfo.distance - newSkinWidth);
+                Vector3 slideVector = Vector3.ProjectOnPlane(remainingVector, hitinfo.normal);
+                if (isGrounded && newMoveVector.y <= 0 && slideVector.y > 0 && Vector3.Dot(hitinfo.normal, Vector3.up) < cosSlopeLimit && Vector3.Dot(hitinfo.normal, Vector3.up) > 0) // If we've hit a steep slope, stop horizontal momentum from turning into additional vertical momentum.
+                {
+                    Vector3 crossVector = Vector3.Cross(hitinfo.normal, Vector3.up);
+                    slideVector = Vector3.Project(slideVector, crossVector);
+                }
+                if (OnMoveCollision != null)
+                {
+                    OnMoveCollision(hitinfo.point, hitinfo.normal, hitinfo.collider);
+                }
+                DoMoveSlide(slideVector, MAX_PHYSICS_SLIDE_ITERATIONS, stairLocations, false); // see DoMoveSlide comment
             }
-            DoMoveSlide(slideVector, MAX_PHYSICS_SLIDE_ITERATIONS); // see DoMoveSlide comment
         }
         else
         {
-            AttemptMove(transform.position + newMoveVector);
+            if (stairLocations.Length > 0 && Vector3.Dot(newMoveVector.normalized, Vector3.up) < sinStairClimbAngle - 0.001f)// if we hit the stair climbing plane before we hit our target. If our move vector is steeper than the stair climbing angle, disregard.
+            {
+                //AttemptMove(transform.position + newMoveVector.normalized * distanceToStairPlanes);
+                //Vector3 remainingVector = newMoveVector - newMoveVector.normalized * (hitinfo.distance);
+                Vector3 stairSlideVector = GetStairClimbVector(moveVector);
+                DoMoveSlide(stairSlideVector, MAX_PHYSICS_SLIDE_ITERATIONS, stairLocations, true); // see DoMoveSlide comment
+            }
+            else
+                AttemptMove(transform.position + newMoveVector);
         }
     }
 
     // When we hit something, we need to continue our movement instead of just stopping, to prevent things like freezing when running into walls
-    private void DoMoveSlide(Vector3 inVector, int iterations)
+    private void DoMoveSlide(Vector3 inVector, int iterations, Vector3[] stairLocations, bool stairClimbing)
     {
-        if (iterations == 0) return;
+        if (iterations == 0)
+        {
+            Debug.Log("DoMoveSlide out of iterations");
+            return;
+        }
+
+        /*float distanceToStairPlanes = inVector.magnitude;
+        foreach (Vector3 stairLocation in stairLocations)
+        {
+            float stairPlaneDistance = SweepToStairClimbPlane(inVector, stairLocation);
+            if (stairPlaneDistance < distanceToStairPlanes)
+                distanceToStairPlanes = stairPlaneDistance;
+        }*/
+
         Vector3 capsuleCenter = transform.TransformPoint(capsuleCollider.center);
         float pointDist = capsuleCollider.height / 2 - capsuleCollider.radius;
         RaycastHit hitinfo;
         if (Physics.CapsuleCast(capsuleCenter - pointDist * Vector3.down, capsuleCenter - pointDist * Vector3.up, capsuleCollider.radius,
         inVector.normalized, out hitinfo, inVector.magnitude + skinWidth, geometryCollisionLayers)) // Capsule Cast that checks our slide move, the same way as you would for a regular move
         {
-            float newSkinWidth = skinWidth / Vector3.Dot(-inVector.normalized, hitinfo.normal);
-            AttemptMove(transform.position + inVector.normalized * (hitinfo.distance - newSkinWidth));
-            Vector3 remainingVector = inVector - inVector.normalized * (hitinfo.distance - newSkinWidth);
-            Vector3 slideVector = Vector3.ProjectOnPlane(remainingVector, hitinfo.normal);
-            if (isGrounded && slideVector.y > 0 && Vector3.Dot(hitinfo.normal, Vector3.up) < cosSlopeLimit && Vector3.Dot(hitinfo.normal, Vector3.up) > 0) // If we've hit a steep slope, stop horizontal momentum from turning into additional vertical momentum.
+            if (stairClimbing && Vector3.Dot(inVector.normalized, Vector3.up) < sinStairClimbAngle - 0.001f) // if we hit the stair climbing plane before we hit our target. If our move vector is steeper than the stair climbing angle, disregard.
             {
-                Vector3 crossVector = Vector3.Cross(hitinfo.normal, Vector3.up);
-                slideVector = Vector3.Project(slideVector, crossVector);
+                //Debug.DrawRay(transform.position - (capsuleCollider.height / 2 - 0.01f) * Vector3.down, inVector.normalized * distanceToStairPlanes);
+
+                //AttemptMove(transform.position + inVector.normalized * distanceToStairPlanes);
+                //Vector3 remainingVector = inVector - inVector.normalized * (hitinfo.distance);
+                Vector3 stairSlideVector = GetStairClimbVector(inVector);
+
+                //Debug.DrawRay(transform.position - (capsuleCollider.height / 2 - 0.01f) * Vector3.down + inVector.normalized * distanceToStairPlanes, stairSlideVector);
+
+                DoMoveSlide(stairSlideVector, iterations - 1, stairLocations, stairClimbing); // see DoMoveSlide comment
             }
-            if (OnMoveCollision != null)
+            else
             {
-                OnMoveCollision(hitinfo.point, hitinfo.normal, hitinfo.collider);
+                float newSkinWidth = skinWidth / Vector3.Dot(-inVector.normalized, hitinfo.normal);
+                AttemptMove(transform.position + inVector.normalized * (hitinfo.distance - newSkinWidth));
+                Vector3 remainingVector = inVector - inVector.normalized * (hitinfo.distance - newSkinWidth);
+                Vector3 slideVector = Vector3.ProjectOnPlane(remainingVector, hitinfo.normal);
+                if (isGrounded && !stairClimbing && slideVector.y > 0 && Vector3.Dot(hitinfo.normal, Vector3.up) < cosSlopeLimit && Vector3.Dot(hitinfo.normal, Vector3.up) > 0) // If we've hit a steep slope, stop horizontal momentum from turning into additional vertical momentum. Don't do this when climbing stairs.
+                {
+                    Vector3 crossVector = Vector3.Cross(hitinfo.normal, Vector3.up);
+                    slideVector = Vector3.Project(slideVector, crossVector);
+                }
+                if (OnMoveCollision != null)
+                {
+                    OnMoveCollision(hitinfo.point, hitinfo.normal, hitinfo.collider);
+                }
+                DoMoveSlide(slideVector, iterations - 1, stairLocations, stairClimbing); // Run this function recursively. It can run a total of MAX_PHYSICS_SLIDE_ITERATIONS times, but most of the time it won't run that many.
             }
-            DoMoveSlide(slideVector, iterations - 1); // Run this function recursively. It can run a total of MAX_PHYSICS_SLIDE_ITERATIONS times, but most of the time it won't run that many.
         }
         else
         {
+            if (stairClimbing && Vector3.Dot(inVector.normalized, Vector3.up) < sinStairClimbAngle - 0.001f) // if we hit the stair climbing plane before we hit our target. If our move vector is steeper than the stair climbing angle, disregard.
+            {
+                //AttemptMove(transform.position + inVector.normalized * distanceToStairPlanes);
+                //Vector3 remainingVector = inVector - inVector.normalized * (hitinfo.distance);
+                Vector3 stairSlideVector = GetStairClimbVector(inVector);
+                DoMoveSlide(stairSlideVector, iterations - 1, stairLocations, stairClimbing); // see DoMoveSlide comment
+            }
             AttemptMove(transform.position + inVector);
         }
     }
 
-    // Stair climbing sweep: a very thin box, facing diagonally up, is swept forward in front of our character, to allow for smooth stair climbing. To understand how this works, uncomment the DrawBoxCast calls.
-    private bool StairClimbSweep(ref Vector3 movement, bool groundCheck)
+    private Vector3[] StairClimbSweep(ref Vector3 movement, bool groundCheck)
     {
+        List<Vector3> foundLocations = new List<Vector3>();
+        for (int i = 0; i < numStairChecks; i++)
+        {
+            Vector3 stairLocation;
+            if (StairClimbSweepPart(movement, groundCheck, i, capsuleCollider.radius / numStairChecks, out stairLocation))
+            {
+                foundLocations.Add(stairLocation);
+            }
+        }
+        return foundLocations.ToArray();
+    }
+
+    // Stair climbing sweep: a very thin box, facing diagonally up, is swept forward in front of our character, to allow for smooth stair climbing. To understand how this works, uncomment the DrawBoxCast calls.
+    private bool StairClimbSweepPart(Vector3 movement, bool groundCheck, int checkIndex, float width, out Vector3 stairLocation)
+    {
+        stairLocation = Vector3.zero;
         Vector3 capsuleCenter = transform.TransformPoint(capsuleCollider.center);
         if (Mathf.Abs(movement.x) < 0.001 && Mathf.Abs(movement.z) < 0.001) return false;
         Vector3 XZMovement = new Vector3(movement.x, 0, movement.z);
-        Vector3 halfExtents = new Vector3(capsuleCollider.radius, STAIR_SWEEPER_THICKNESS, maxStairHeight / Mathf.Sin(stairClimbAngle * Mathf.Deg2Rad) / 2);
-        float startDistance = maxStairHeight / Mathf.Tan(stairClimbAngle * Mathf.Deg2Rad) / 2;
+        Vector3 halfExtents = new Vector3(width, STAIR_SWEEPER_THICKNESS, maxStairHeight / sinStairClimbAngle / 2);
+        float startDistance = maxStairHeight / tanStairClimbAngle / 2;
         Vector3 startPos = new Vector3(0, maxStairHeight / 2 + STAIR_SWEEPER_THICKNESS, 0);
-        startPos += XZMovement.normalized * startDistance;
+        startPos += -XZMovement.normalized * startDistance;
+        startPos += Vector3.Cross(XZMovement.normalized, Vector3.up) * (capsuleCollider.radius * (1 - 1/numStairChecks - 1/numStairChecks * checkIndex * 2)); // offset our startpos depending on which of the multiple stairchecks it is
         startPos += capsuleCenter + (capsuleCollider.height / 2) * Vector3.down;
         Quaternion yawRotation = Quaternion.LookRotation(new Vector3(movement.x, 0, movement.z));
         Quaternion pitchRotation = Quaternion.Euler(-stairClimbAngle, 0, 0);
         RaycastHit hitinfo = new RaycastHit();
         Quaternion orientation = yawRotation * pitchRotation;
-        Vector3 castVector = XZMovement.normalized * (XZMovement.magnitude + capsuleCollider.radius);
-        if (Physics.BoxCast(startPos, halfExtents, castVector.normalized, out hitinfo, orientation,
-            castVector.magnitude, geometryCollisionLayers))
+        float addedDistance = capsuleCollider.radius * Mathf.Tan(stairClimbAngle * Mathf.Deg2Rad / 2);
+        Vector3 castVector = XZMovement.normalized * (XZMovement.magnitude + addedDistance + startDistance * 2);
+        bool didCollide = Physics.BoxCast(startPos, halfExtents, castVector.normalized, out hitinfo, orientation,
+            castVector.magnitude, geometryCollisionLayers);
+        if (didCollide)
         {
-            PhysHelper.DrawBoxCast(halfExtents, startPos, startPos + hitinfo.distance * castVector.normalized, orientation, true);
-            return true;
+            bool doRecast = false;
+            for (int i = 0; i < 20; i++)
+            {
+                if (didCollide && Vector3.Dot((hitinfo.point - transform.position).normalized, XZMovement.normalized) < 0) // Edge case; attempt to redo traces if we hit small objects
+                {
+                    PhysHelper.DrawBoxCast(halfExtents, startPos, startPos + hitinfo.distance * castVector.normalized, orientation, true);
+                    
+                    castVector = castVector.normalized * (castVector.magnitude - hitinfo.distance); //Reduce our castvector distance by the distance traveled before hitting something
+                    startPos += (hitinfo.distance + 0.001f) * castVector.normalized; //Go past the small object and cast again
+                    didCollide = Physics.BoxCast(startPos, halfExtents, castVector.normalized, out hitinfo, orientation,
+                    castVector.magnitude, geometryCollisionLayers);
+                    doRecast = true;
+                }
+                Vector3 endPos = startPos + hitinfo.distance * castVector.normalized;
+                bool didHitBoxSide = Vector3.Project(hitinfo.point - endPos, Vector3.Cross(XZMovement.normalized, Vector3.up)).magnitude > halfExtents.x - 0.001f;
+                bool didHitBoxTop = hitinfo.point.y > endPos.y + halfExtents.z * sinStairClimbAngle - STAIR_SWEEPER_THICKNESS;
+                bool didHitBoxBottom = hitinfo.point.y < endPos.y - halfExtents.z * sinStairClimbAngle + STAIR_SWEEPER_THICKNESS;
+                if (didCollide && Vector3.Dot(hitinfo.normal, Vector3.up) < cosSlopeLimit && didHitBoxSide && (didHitBoxBottom || didHitBoxTop)) // If we're walking diagonally into a wall
+                {
+                    PhysHelper.DrawBoxCast(halfExtents, startPos, startPos + hitinfo.distance * castVector.normalized, orientation, true);
+                    
+                    castVector = castVector.normalized * (castVector.magnitude - hitinfo.distance); //Reduce our castvector distance by the distance traveled before hitting something
+                    startPos += (hitinfo.distance - skinWidth) * castVector.normalized;
+                    Vector3 xzNormal = Vector3.ProjectOnPlane(hitinfo.normal, Vector3.up).normalized;
+                    castVector = Vector3.ProjectOnPlane(castVector, xzNormal);
+                    didCollide = Physics.BoxCast(startPos, halfExtents, castVector.normalized, out hitinfo, orientation,
+                    castVector.magnitude, geometryCollisionLayers);
+                    doRecast = true;
+                }
+                if (didCollide && Vector3.Dot(hitinfo.normal, Vector3.up) > cosSlopeLimit && didHitBoxBottom) // If we're walking up a shallow slope
+                {
+                    PhysHelper.DrawBoxCast(halfExtents, startPos, startPos + hitinfo.distance * castVector.normalized, orientation, true);
+
+                    castVector = castVector.normalized * (castVector.magnitude - hitinfo.distance); //Reduce our castvector distance by the distance traveled before hitting something
+                    startPos += (hitinfo.distance - skinWidth) * castVector.normalized;
+                    castVector = Vector3.ProjectOnPlane(castVector, hitinfo.normal);
+                    didCollide = Physics.BoxCast(startPos, halfExtents, castVector.normalized, out hitinfo, orientation,
+                    castVector.magnitude, geometryCollisionLayers);
+                    doRecast = true;
+                }
+                if (!doRecast)
+                    break;
+            }
+            if (didCollide)
+            {
+                Vector3 endPos = startPos + hitinfo.distance * castVector.normalized;
+                bool didHitBoxTop = hitinfo.point.y > endPos.y + halfExtents.z * sinStairClimbAngle - STAIR_SWEEPER_THICKNESS;
+                bool didHitBoxBottom = hitinfo.point.y < endPos.y - halfExtents.z * sinStairClimbAngle + STAIR_SWEEPER_THICKNESS;
+                if (didHitBoxTop || didHitBoxBottom) // It doesn't count as a stair if it hit the top or bottom of the collider
+                {
+                    PhysHelper.DrawBoxCast(halfExtents, startPos, startPos + hitinfo.distance * castVector.normalized, orientation, true);
+                    return false;
+                }
+                PhysHelper.DrawBoxCast(halfExtents, startPos, startPos + hitinfo.distance * castVector.normalized, orientation, true);
+                stairLocation = hitinfo.point;
+                return true;
+            }
+            else
+            {
+                PhysHelper.DrawBoxCast(halfExtents, startPos, startPos + castVector, orientation, false);
+                return false;
+            }
         }
         else
         {
-            return false;
             PhysHelper.DrawBoxCast(halfExtents, startPos, startPos + castVector, orientation, false);
+            return false;
         }
+    }
+
+    // Does a sphere cast from the bottom of the capsule in the direction of moveVector, checking intersections with a plane sloping diagonally down from stairpoint at the angle of StairClimbAngle
+    /*private float SweepToStairClimbPlane(Vector3 moveVector, Vector3 stairPoint)
+    {
+        Vector3 startingMoveVector = moveVector;
+        Vector3 normal = -moveVector;
+        Vector3 sphereStart = transform.position + (capsuleCollider.height / 2 - capsuleCollider.radius) * Vector3.down;
+        normal.y = 0;
+        normal.y = normal.magnitude / tanStairClimbAngle;
+        normal.Normalize();
+
+        if (Mathf.Abs(Vector3.Dot(normal, -moveVector.normalized)) < 0.01f) // prevent divide by 0 float weirdness
+        {
+            return 0;
+        }
+
+        float sphereFromPlaneDistance = Vector3.Project(stairPoint - sphereStart, normal).magnitude; //distance from the plane to the center of the sphere
+        float moveVectorRayIntersect = sphereFromPlaneDistance / Vector3.Dot(normal, -moveVector.normalized);
+        moveVector = moveVector.normalized * moveVectorRayIntersect;
+        Debug.DrawRay(sphereStart, moveVector);
+
+        Debug.DrawRay(stairPoint, normal);
+        float removedCastDistance = capsuleCollider.radius / Vector3.Dot(normal, -moveVector.normalized);
+        float castDistance = moveVector.magnitude - removedCastDistance;
+        
+        if (castDistance > startingMoveVector.magnitude + 0.01f)
+        {
+            Debug.Log("That should not have happened");
+        }
+        //Debug.DrawRay(sphereStart, moveVector.normalized * CastDistance);
+        return castDistance;
+    }*/
+
+    private Vector3 GetStairClimbVector(Vector3 moveVector)
+    {
+        Vector3 newMoveVectorXZ = new Vector3(moveVector.x, 0, moveVector.z);
+        Vector3 stairSlideVector = newMoveVectorXZ + Vector3.up * newMoveVectorXZ.magnitude * tanStairClimbAngle;
+        stairSlideVector = stairSlideVector.normalized * newMoveVectorXZ.magnitude;
+        return stairSlideVector;
     }
 
     private bool AttemptMove(Vector3 position)
