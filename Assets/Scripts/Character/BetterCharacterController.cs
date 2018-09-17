@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using UnityEngine;
 
 public class BetterCharacterController : MonoBehaviour {
-    
+
     private const float GROUND_CHECK_DISTANCE = 0.01f;
     private const int MAX_PHYSICS_SLIDE_ITERATIONS = 20;
     private const int FAKE_CAPSULE_CAST_BOXES = 10;
@@ -36,17 +36,17 @@ public class BetterCharacterController : MonoBehaviour {
     private Vector3 lastMoveVector;
 
     // Use this for initialization
-    void Start () {
+    void Start() {
         cosSlopeLimit = Mathf.Cos(slopeLimit * Mathf.Deg2Rad);
         sinStairClimbAngle = Mathf.Sin(stairClimbAngle * Mathf.Deg2Rad);
         cosStairClimbAngle = Mathf.Cos(stairClimbAngle * Mathf.Deg2Rad);
         tanStairClimbAngle = Mathf.Tan(stairClimbAngle * Mathf.Deg2Rad);
         geometryCollisionLayers = 1 << LayerMask.NameToLayer("Geometry");
     }
-	
-	// Update is called once per frame
-	void Update () {
-	}
+
+    // Update is called once per frame
+    void Update() {
+    }
 
     private void FixedUpdate()
     {
@@ -119,7 +119,7 @@ public class BetterCharacterController : MonoBehaviour {
         }
     }
     ///<summary>Move the character in a vector direction, with corrections for platform edges and steep slopes</summary>
-    public void Move(Vector3 moveVector)
+    public void Move(Vector3 moveVector, bool jump = false)
     {
         lastMoveVector = moveVector;
         Vector3 newMoveVector = moveVector;
@@ -156,10 +156,12 @@ public class BetterCharacterController : MonoBehaviour {
                     if (Vector3.Dot(groundHitinfo.normal, Vector3.up) > cosSlopeLimit)
                     {
                         newMoveVector.y = -(minDistance - skinWidth);
+                        newMoveVector.y = Mathf.Min(newMoveVector.y, 0); //Emergency edge case fixer in case for some reason we end up with upward movement
                         if (OnMoveGroundCollision != null)
                         {
                             OnMoveGroundCollision(groundHitPoint, groundHitNormal, groundHitCollider);
                         }
+                        isGrounded = true;
                     }
                 }
             }
@@ -224,6 +226,10 @@ public class BetterCharacterController : MonoBehaviour {
             }
             else
                 AttemptMove(transform.position + newMoveVector);
+        }
+        if (isGrounded && stairLocations.Length == 0 && !jump)
+        {
+            DoKeepOnGroundMove();
         }
     }
 
@@ -290,6 +296,37 @@ public class BetterCharacterController : MonoBehaviour {
                 DoMoveSlide(stairSlideVector, iterations - 1, stairLocations, stairClimbing); // see DoMoveSlide comment
             }
             AttemptMove(transform.position + inVector);
+        }
+    }
+
+    private void DoKeepOnGroundMove()
+    {
+        Vector3 lastMoveVectorXZ = lastMoveVector;
+        lastMoveVectorXZ.y = 0;
+        float downwardsMovement = Mathf.Tan(slopeLimit * Mathf.Deg2Rad) * lastMoveVectorXZ.magnitude;
+
+        Vector3 capsuleCenter = transform.TransformPoint(capsuleCollider.center);
+        float pointDist = capsuleCollider.height / 2 - capsuleCollider.radius;
+        RaycastHit[] raycasthits;
+        raycasthits = Physics.CapsuleCastAll(capsuleCenter - pointDist * Vector3.down, capsuleCenter - pointDist * Vector3.up, capsuleCollider.radius,
+            Vector3.down, capsuleCollider.radius + downwardsMovement + skinWidth, geometryCollisionLayers); // capsule cast, checking for ground. Casts an extra radius and ignores results within the lower hemisphere, in order to imitate a cylinder
+        float minDistance = downwardsMovement;
+        bool doDownwardsMovement = false;
+        foreach (RaycastHit hit in raycasthits)
+        {
+            float distToPoint = (capsuleCenter.y - capsuleCollider.height / 2) - hit.point.y; //calculating the distance if we were casting a cylinder instead of a capsule
+            if (distToPoint < minDistance)
+            {
+                minDistance = distToPoint;
+                downwardsMovement = (minDistance - skinWidth);
+                doDownwardsMovement = true;
+            }
+        }
+
+        if (doDownwardsMovement)
+        {
+            downwardsMovement = Mathf.Max(downwardsMovement, 0); //Emergency edge case fixer in case for some reason we end up with upward movement
+            DoMoveSlide(downwardsMovement * Vector3.down, 1, new Vector3[0], false);
         }
     }
 
@@ -382,6 +419,32 @@ public class BetterCharacterController : MonoBehaviour {
                 {
                     PhysHelper.DrawBoxCast(halfExtents, startPos, startPos + hitinfo.distance * castVector.normalized, orientation, true);
                     return false;
+                }
+                if (Vector3.Dot(hitinfo.normal, Vector3.up) < cosSlopeLimit) // If we hit something that's too steep, raycast to check if it's a stair anyways
+                {
+                    Vector3 rayCastStart = endPos; // Our start position should be the center of the bottom of the box
+                    rayCastStart.y -= halfExtents.z * sinStairClimbAngle;
+                    rayCastStart -= halfExtents.z * XZMovement.normalized * cosStairClimbAngle;
+                    Vector3 rayCastEnd = hitinfo.point + 0.001f * Vector3.up;
+                    Vector3 rayCastDir = rayCastEnd - rayCastStart;
+                    float rayCastDistance = (rayCastEnd - rayCastStart).magnitude + 0.001f;
+                    if (Physics.Raycast(rayCastStart, rayCastDir.normalized, rayCastDistance, geometryCollisionLayers)) // Cast to see if we hit a sloped wall, if we do the cast should fail
+                    {
+                        PhysHelper.DrawBoxCast(halfExtents, startPos, startPos + hitinfo.distance * castVector.normalized, orientation, true);
+                        return false;
+                    }
+
+                    rayCastStart = rayCastStart + rayCastDir.normalized * (rayCastDir.magnitude + 0.001f);
+
+                    RaycastHit stairTopTestHitinfo;
+                    if (Physics.Raycast(rayCastStart, Vector3.down, out stairTopTestHitinfo, maxStairHeight, geometryCollisionLayers)) // Cast straight down from a position that should be over the stair
+                    {
+                        if (Vector3.Dot(stairTopTestHitinfo.normal, Vector3.up) < cosSlopeLimit)
+                        {
+                            PhysHelper.DrawBoxCast(halfExtents, startPos, startPos + hitinfo.distance * castVector.normalized, orientation, true);
+                            return false;
+                        }
+                    }
                 }
                 PhysHelper.DrawBoxCast(halfExtents, startPos, startPos + hitinfo.distance * castVector.normalized, orientation, true);
                 stairLocation = hitinfo.point;

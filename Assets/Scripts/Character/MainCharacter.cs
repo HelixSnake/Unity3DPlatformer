@@ -20,11 +20,15 @@ public class MainCharacter : MonoBehaviour
     public float reducedCeilingVelocity = 0.1f;
     public float moveDeadZone = 0.1f;
     public float maxCeilingAngle = 45;
+    [Tooltip("Time not on ground before we start falling animation")]
+    public float timeBeforeFallingAnim = 0.1f;
 
     private Vector3 v3TargetVelocity;
     private Vector3 velocity;
     private float maxCeilingAngleCos;
     private bool inputButtonDownJump;
+    private float inAirTimer;
+    private bool didJump;
 
     // Use this for initialization
     void Start()
@@ -79,24 +83,34 @@ public class MainCharacter : MonoBehaviour
         velocity.x = v3XYVelocity.x;
         velocity.z = v3XYVelocity.z;
 
-        controller.Move(velocity);
-
+        controller.Move(velocity, didJump);
+        didJump = false;
 
 
         if (controller.isGrounded)
         {
             animator.SetBool("bIsInAir", false);
             animator.SetBool("bIsLanding", true);
+            inAirTimer = timeBeforeFallingAnim;
         }
         else
         {
-            animator.SetBool("bIsInAir", true);
+            if (inAirTimer <= 0)
+            {
+                animator.SetBool("bIsInAir", true);
+            }
+            else
+            {
+                inAirTimer -= Time.fixedDeltaTime;
+            }
             animator.SetBool("bIsLanding", false);
         }
         if (inputButtonDownJump && controller.isGrounded)
         {
             velocity.y = jumpForce;
             animator.SetTrigger("bJump");
+            animator.SetBool("bIsLanding", false);
+            didJump = true;
         }
         inputButtonDownJump = false;
     }
