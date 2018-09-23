@@ -16,6 +16,8 @@ public class DollyCamera : MonoBehaviour {
     void Start () {
         fPitch = 0;
         fYaw = 0;
+        Cursor.lockState = CursorLockMode.Locked;
+        Cursor.visible = false;
     }
 	
 	// Update is called once per frame
