@@ -8,6 +8,8 @@ public class BetterCharacterController : MonoBehaviour {
     private const int MAX_PHYSICS_SLIDE_ITERATIONS = 20;
     private const int FAKE_CAPSULE_CAST_BOXES = 10;
     private const float STAIR_SWEEPER_THICKNESS = 0.001f;
+    private const float STUCK_BETWEEN_SLOPES_TEST_VALUE = 0.001f;
+    private const float STUCK_BETWEEN_SLOPES_MIN_Y = 0.01f;
     public CapsuleCollider capsuleCollider;
     public float slopeLimit = 45;
     public float skinWidth = 0.5f;
@@ -34,6 +36,7 @@ public class BetterCharacterController : MonoBehaviour {
     public event CollisionEvent OnMoveCollision; // doesn't fire if we collide with the ground, usually
     private int geometryCollisionLayers;
     private Vector3 lastMoveVector;
+    private bool stuckBetweenSlopes;
 
     // Use this for initialization
     void Start() {
@@ -55,6 +58,11 @@ public class BetterCharacterController : MonoBehaviour {
 
     private void TestForGround()
     {
+        if (stuckBetweenSlopes)
+        {
+            stuckBetweenSlopes = false;
+            return;
+        }
         //check to see if we're climbing stairs; if so, stay on ground
         if (isGrounded)
         {
@@ -86,7 +94,7 @@ public class BetterCharacterController : MonoBehaviour {
                 riseAmount = hit.point.y - (capsuleCenter.y - capsuleCollider.height / 2 - skinWidth); //calculating the distance if we were casting a cylinder instead of a capsule
                 riseAmount = Mathf.Max(riseAmount, 0);
                 hitGround = true;
-                if (Vector3.Dot(hit.normal, Vector3.up) > cosSlopeLimit)
+                if (IsGround(hit.normal))
                 {
                     isGrounded = true;
                     break;
@@ -99,7 +107,7 @@ public class BetterCharacterController : MonoBehaviour {
             if (PhysHelper.FakeCylinderCast(FAKE_CAPSULE_CAST_BOXES, capsuleCollider.height - capsuleCollider.radius * 2, capsuleCollider.radius, capsuleCenter, Vector3.down, out groundHitinfo,
                 capsuleCollider.radius + skinWidth, geometryCollisionLayers, true)) // fake cylinder cast, checking for steep slopes and prevent us from thinking we're on ground if the slope is too steep
             {
-                if (Vector3.Dot(groundHitinfo.normal, Vector3.up) > cosSlopeLimit)
+                if (IsGround(groundHitinfo.normal))
                 {
                     isGrounded = true;
                 }
@@ -111,10 +119,10 @@ public class BetterCharacterController : MonoBehaviour {
             RaycastHit hitinfo;
             bool hitUp = Physics.CapsuleCast(capsuleCenter - pointDist * Vector3.down, capsuleCenter - pointDist * Vector3.up, capsuleCollider.radius,
             Vector3.up, out hitinfo, amtToMoveUp + skinWidth, geometryCollisionLayers); // cast to check if we can rise
-            if (!hitUp) AttemptMove(transform.position + Vector3.up * amtToMoveUp);
+            if (!hitUp) AttemptSetPosition(transform.position + Vector3.up * amtToMoveUp);
             else if (hitinfo.distance > skinWidth)
             {
-                AttemptMove(transform.position + Vector3.up * (hitinfo.distance - skinWidth));
+                AttemptSetPosition(transform.position + Vector3.up * (hitinfo.distance - skinWidth));
             }
         }
     }
@@ -122,6 +130,7 @@ public class BetterCharacterController : MonoBehaviour {
     public void Move(Vector3 moveVector, bool jump = false)
     {
         lastMoveVector = moveVector;
+        float startY = transform.position.y;
         Vector3 newMoveVector = moveVector;
         Vector3 capsuleCenter = transform.TransformPoint(capsuleCollider.center);
         float pointDist = capsuleCollider.height / 2 - capsuleCollider.radius;
@@ -153,7 +162,7 @@ public class BetterCharacterController : MonoBehaviour {
                 if (PhysHelper.FakeCylinderCast(FAKE_CAPSULE_CAST_BOXES, capsuleCollider.height - capsuleCollider.radius * 2, capsuleCollider.radius, capsuleCenter, Vector3.down, out groundHitinfo,
                     capsuleCollider.radius - moveVector.y + skinWidth, geometryCollisionLayers)) // Fake cylinder cast to check for steep slopes and prevent stopping if the slope is too steep
                 {
-                    if (Vector3.Dot(groundHitinfo.normal, Vector3.up) > cosSlopeLimit)
+                    if (IsGround(groundHitinfo.normal))
                     {
                         newMoveVector.y = -(minDistance - skinWidth);
                         newMoveVector.y = Mathf.Min(newMoveVector.y, 0); //Emergency edge case fixer in case for some reason we end up with upward movement
@@ -200,15 +209,16 @@ public class BetterCharacterController : MonoBehaviour {
             else
             {
                 float newSkinWidth = skinWidth / Vector3.Dot(-newMoveVector.normalized, hitinfo.normal);
-                AttemptMove(transform.position + newMoveVector.normalized * (hitinfo.distance - newSkinWidth));
+                newSkinWidth = Mathf.Max(newSkinWidth, 0);
+                AttemptSetPosition(transform.position + newMoveVector.normalized * (hitinfo.distance - newSkinWidth));
                 Vector3 remainingVector = newMoveVector - newMoveVector.normalized * (hitinfo.distance - newSkinWidth);
                 Vector3 slideVector = Vector3.ProjectOnPlane(remainingVector, hitinfo.normal);
-                if (isGrounded && newMoveVector.y <= 0 && slideVector.y > 0 && Vector3.Dot(hitinfo.normal, Vector3.up) < cosSlopeLimit && Vector3.Dot(hitinfo.normal, Vector3.up) > 0) // If we've hit a steep slope, stop horizontal momentum from turning into additional vertical momentum.
+                if (isGrounded && newMoveVector.y <= 0 && slideVector.y > 0 && !IsGround(hitinfo.normal) && Vector3.Dot(hitinfo.normal, Vector3.up) > 0) // If we've hit a steep slope, stop horizontal momentum from turning into additional vertical momentum.
                 {
                     Vector3 crossVector = Vector3.Cross(hitinfo.normal, Vector3.up);
                     slideVector = Vector3.Project(slideVector, crossVector);
                 }
-                if (OnMoveCollision != null)
+                if (OnMoveCollision != null && !IsGround(hitinfo.normal))
                 {
                     OnMoveCollision(hitinfo.point, hitinfo.normal, hitinfo.collider);
                 }
@@ -225,11 +235,16 @@ public class BetterCharacterController : MonoBehaviour {
                 DoMoveSlide(stairSlideVector, MAX_PHYSICS_SLIDE_ITERATIONS, stairLocations, true); // see DoMoveSlide comment
             }
             else
-                AttemptMove(transform.position + newMoveVector);
+                AttemptSetPosition(transform.position + newMoveVector);
         }
         if (isGrounded && stairLocations.Length == 0 && !jump)
         {
             DoKeepOnGroundMove();
+        }
+        if ((lastMoveVector.y < -STUCK_BETWEEN_SLOPES_MIN_Y) && transform.position.y > startY - STUCK_BETWEEN_SLOPES_TEST_VALUE)
+        {
+            isGrounded = true;
+            stuckBetweenSlopes = true;
         }
     }
 
@@ -238,7 +253,7 @@ public class BetterCharacterController : MonoBehaviour {
     {
         if (iterations == 0)
         {
-            Debug.Log("DoMoveSlide out of iterations");
+            //Debug.Log("DoMoveSlide out of iterations");
             return;
         }
 
@@ -271,18 +286,20 @@ public class BetterCharacterController : MonoBehaviour {
             else
             {
                 float newSkinWidth = skinWidth / Vector3.Dot(-inVector.normalized, hitinfo.normal);
-                AttemptMove(transform.position + inVector.normalized * (hitinfo.distance - newSkinWidth));
+                newSkinWidth = Mathf.Max(newSkinWidth, 0);
+                AttemptSetPosition(transform.position + inVector.normalized * (hitinfo.distance - newSkinWidth));
                 Vector3 remainingVector = inVector - inVector.normalized * (hitinfo.distance - newSkinWidth);
                 Vector3 slideVector = Vector3.ProjectOnPlane(remainingVector, hitinfo.normal);
-                if (isGrounded && !stairClimbing && slideVector.y > 0 && Vector3.Dot(hitinfo.normal, Vector3.up) < cosSlopeLimit && Vector3.Dot(hitinfo.normal, Vector3.up) > 0) // If we've hit a steep slope, stop horizontal momentum from turning into additional vertical momentum. Don't do this when climbing stairs.
+                if (isGrounded && !stairClimbing && slideVector.y > 0 && !IsGround(hitinfo.normal) && Vector3.Dot(hitinfo.normal, Vector3.up) > 0) // If we've hit a steep slope, stop horizontal momentum from turning into additional vertical momentum. Don't do this when climbing stairs.
                 {
                     Vector3 crossVector = Vector3.Cross(hitinfo.normal, Vector3.up);
                     slideVector = Vector3.Project(slideVector, crossVector);
                 }
-                if (OnMoveCollision != null)
+                if (OnMoveCollision != null && !IsGround(hitinfo.normal))
                 {
                     OnMoveCollision(hitinfo.point, hitinfo.normal, hitinfo.collider);
                 }
+
                 DoMoveSlide(slideVector, iterations - 1, stairLocations, stairClimbing); // Run this function recursively. It can run a total of MAX_PHYSICS_SLIDE_ITERATIONS times, but most of the time it won't run that many.
             }
         }
@@ -295,8 +312,13 @@ public class BetterCharacterController : MonoBehaviour {
                 Vector3 stairSlideVector = GetStairClimbVector(inVector);
                 DoMoveSlide(stairSlideVector, iterations - 1, stairLocations, stairClimbing); // see DoMoveSlide comment
             }
-            AttemptMove(transform.position + inVector);
+            AttemptSetPosition(transform.position + inVector);
         }
+    }
+
+    public bool IsGround(Vector3 normal)
+    {
+        return (Vector3.Dot(normal, Vector3.up) > cosSlopeLimit);
     }
 
     private void DoKeepOnGroundMove()
@@ -503,7 +525,7 @@ public class BetterCharacterController : MonoBehaviour {
         return stairSlideVector;
     }
 
-    private bool AttemptMove(Vector3 position)
+    private bool AttemptSetPosition(Vector3 position)
     {
         float pointDist = capsuleCollider.height / 2 - capsuleCollider.radius;
         RaycastHit[] hitinfos = Physics.CapsuleCastAll(position + pointDist * Vector3.up, position + pointDist * Vector3.down, capsuleCollider.radius, Vector3.down, 0.001f, geometryCollisionLayers);
