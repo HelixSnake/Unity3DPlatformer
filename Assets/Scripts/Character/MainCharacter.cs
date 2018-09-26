@@ -10,32 +10,37 @@ public class MainCharacter : MonoBehaviour
     public DollyCamera dollyCamera;
     public BetterCharacterController controller;
     public Animator animator;
+    public BallCharacterController ballController;
 
-    public float gravity = 10;
-    public float terminalVelocity = 4;
-    public float moveAcceleration = 1;
-    public float moveAccelerationAir = 0.3f;
-    public float wallCollisionDeceleration = 2;
-    public float moveSpeed = 0.2f;
-    public float superSprintSpeed = 0.4f;
-    public float superSprintAcceleration = 0.2f;
+    public float gravity = 60;
+    public float terminalVelocity = 240;
+    public float moveAcceleration = 60;
+    public float moveAccelerationAir = 20f;
+    public float wallCollisionDeceleration = 240;
+    public float moveSpeed = 12f;
+    public float superSprintSpeed = 23f;
+    public float superSprintAcceleration = 12;
+    public float MaxSpeedDecceleration = 1;
     public float timeBeforeSuperSprint = 1;
     public float rotateSpeed = 1080;
-    public float jumpForce = 0.4f;
+    public float jumpForce = 24;
     public float minJumpButtonTime = 0.2f;
     [Tooltip("Extra gravity when we reduce the jump button")]
-    public float jumpHeightReduceForce = 10;
+    public float jumpHeightReduceForce = 24;
     [Tooltip("When we hit a flat enough ceiling, reduce the y velocity to this to improve game feel")]
-    public float reducedCeilingVelocity = 0.1f;
+    public float reducedCeilingVelocity = 6;
     public float moveDeadZone = 0.1f;
     public float maxCeilingAngle = 45;
     [Tooltip("Time not on ground before we start falling animation")]
     public float timeBeforeFallingAnim = 0.1f;
+    public float jumpForgivenessTime = 0.2f;
 
     private Vector3 v3TargetVelocity;
     private Vector3 velocity;
     private float maxCeilingAngleCos;
     private bool inputButtonDownJump;
+    private bool inputButtonDownCurlUp;
+    private bool inputButtonUpCurlUp;
     private float inAirTimer;
     private bool didJump;
     private float currentMaxSpeed;
@@ -43,6 +48,8 @@ public class MainCharacter : MonoBehaviour
     private readonly List<Vector3> collidedWallNormals = new List<Vector3>();
     private bool isJumpingUp;
     private float minJumpTimer;
+    private bool isCurledUp;
+    private float jumpForgivenessTimer;
 
     // Use this for initialization
     void Start()
@@ -57,24 +64,51 @@ public class MainCharacter : MonoBehaviour
     // Update is called once per frame
     void Update()
     {
-        if (v3TargetVelocity.magnitude > 0.02f && controller.isGrounded)
+        if (v3TargetVelocity.magnitude > 0.02f && controller.isGrounded && !isCurledUp)
         {
             transform.rotation = Quaternion.RotateTowards(transform.rotation, Quaternion.LookRotation(v3TargetVelocity, Vector3.up), Time.deltaTime * rotateSpeed);
         }
         if (Input.GetButtonDown("Fire2")) inputButtonDownJump = true;
+        if (Input.GetButtonDown("CurlUp")) inputButtonDownCurlUp = true;
+        if (Input.GetButtonUp("CurlUp")) inputButtonUpCurlUp = true;
     }
 
     private void FixedUpdate()
     {
-        if (controller.isGrounded)
+        ApplyGravity();
+        GetInputLocalToCamera();
+        if (!isCurledUp)
         {
-            Debug.DrawRay(this.transform.position, Vector3.up);
+            DoJumpingCode();
+            DoNormalMovementCode();
         }
+        DoAnimatorCode();
+    }
+
+    private void AdjustVelocityOnCeilingCollision(Vector3 impactPoint, Vector3 normal, Collider collider)
+    {
+        if (Vector3.Dot(normal, Vector3.down) > maxCeilingAngleCos && velocity.y > 0)
+        {
+            velocity.y = Mathf.Min(velocity.y, reducedCeilingVelocity);
+        }
+    }
+    private void AdjustVelocityOnWallCollision(Vector3 impactPoint, Vector3 normal, Collider collider)
+    {
+        Vector3 XZNormal = normal;
+        XZNormal.y = 0;
+        XZNormal.Normalize();
+        collidedWallNormals.Add(XZNormal);
+    }
+
+    private void ApplyGravity()
+    {
         velocity.y -= gravity * Time.fixedDeltaTime;
         velocity.y = Mathf.Max(velocity.y, -terminalVelocity);
         if (controller.isGrounded) velocity.y = Mathf.Max(velocity.y, -0.01f);
+    }
 
-        // Controller input
+    private void GetInputLocalToCamera()
+    {
         float fInputRawX;
         float fInputRawY;
         fInputRawX = Input.GetAxis("Horizontal");
@@ -89,10 +123,14 @@ public class MainCharacter : MonoBehaviour
         float fInputX = Mathf.Cos(fYawRadians) * fInputRawX - Mathf.Sin(fYawRadians) * fInputRawY; // translate inputs to cameraspace
         float fInputY = Mathf.Sin(fYawRadians) * fInputRawX + Mathf.Cos(fYawRadians) * fInputRawY; // translate inputs to cameraspace
         v3TargetVelocity = Vector3.zero;
-        v3TargetVelocity.x = fInputX * currentMaxSpeed;
-        v3TargetVelocity.z = fInputY * currentMaxSpeed;
+        v3TargetVelocity.x = fInputX;
+        v3TargetVelocity.z = fInputY;
+        v3TargetVelocity.Normalize();
+        v3TargetVelocity *= currentMaxSpeed;
+    }
 
-        // Jumping code
+    private void DoJumpingCode()
+    {
         minJumpTimer = Mathf.Min(minJumpTimer + Time.fixedDeltaTime, minJumpButtonTime);
         if (velocity.y <= 0 || (controller.isGrounded || !Input.GetButton("Fire2")) && minJumpTimer >= minJumpButtonTime)
         {
@@ -102,8 +140,10 @@ public class MainCharacter : MonoBehaviour
         {
             velocity.y -= jumpHeightReduceForce * Time.fixedDeltaTime;
         }
+    }
 
-        // Movement code
+    private void DoNormalMovementCode()
+    {
         Vector3 v3XYVelocity = velocity;
         v3XYVelocity.y = 0;
 
@@ -121,9 +161,16 @@ public class MainCharacter : MonoBehaviour
             v3VelocityOffset = Vector3.ClampMagnitude(v3TargetVelocity - v3XYVelocity, moveAcceleration * Time.fixedDeltaTime);
         else
             v3VelocityOffset = Vector3.ClampMagnitude(v3TargetVelocity - v3XYVelocity, moveAccelerationAir * Time.fixedDeltaTime);
-        v3XYVelocity += v3VelocityOffset;
+        Vector3 newXYVelocity = v3XYVelocity + v3VelocityOffset;
 
-        if (v3XYVelocity.magnitude >= moveSpeed * 0.95f)
+
+        if (currentMaxSpeed > superSprintSpeed)
+        {
+            superSprintTimer = timeBeforeSuperSprint;
+            currentMaxSpeed = Mathf.Max(superSprintSpeed, currentMaxSpeed - MaxSpeedDecceleration * Time.fixedDeltaTime);
+            currentMaxSpeed = Mathf.Min(currentMaxSpeed, v3XYVelocity.magnitude);
+        }
+        else if (newXYVelocity.magnitude >= moveSpeed * 0.95f)
         {
             if (controller.isGrounded)
             {
@@ -142,14 +189,16 @@ public class MainCharacter : MonoBehaviour
             superSprintTimer = 0;
         }
 
-        velocity.x = v3XYVelocity.x;
-        velocity.z = v3XYVelocity.z;
+        velocity.x = newXYVelocity.x;
+        velocity.z = newXYVelocity.z;
 
-        controller.Move(velocity, didJump);
+        controller.Move(velocity * Time.fixedDeltaTime, didJump);
 
         ApplyCollidedWallNormals();
+    }
 
-        // Animator code
+    private void DoAnimatorCode()
+    {
         didJump = false;
 
         if (controller.isGrounded)
@@ -157,6 +206,7 @@ public class MainCharacter : MonoBehaviour
             animator.SetBool("bIsInAir", false);
             animator.SetBool("bIsLanding", true);
             inAirTimer = timeBeforeFallingAnim;
+            jumpForgivenessTimer = jumpForgivenessTime;
         }
         else
         {
@@ -168,33 +218,38 @@ public class MainCharacter : MonoBehaviour
             {
                 inAirTimer -= Time.fixedDeltaTime;
             }
+            if (jumpForgivenessTimer > 0)
+            {
+                jumpForgivenessTimer -= Time.fixedDeltaTime;
+            }
             animator.SetBool("bIsLanding", false);
         }
-        if (inputButtonDownJump && controller.isGrounded)
+        if (inputButtonDownJump && (controller.isGrounded || jumpForgivenessTimer > 0))
         {
             velocity.y = jumpForce;
-            animator.SetTrigger("bJump");
+            animator.SetTrigger("tJump");
             animator.SetBool("bIsLanding", false);
             didJump = true;
             isJumpingUp = true;
             minJumpTimer = 0;
         }
-        inputButtonDownJump = false;
-    }
-
-    private void AdjustVelocityOnCeilingCollision(Vector3 impactPoint, Vector3 normal, Collider collider)
-    {
-        if (Vector3.Dot(normal, Vector3.down) > maxCeilingAngleCos && velocity.y > 0)
+        if (inputButtonDownCurlUp)
         {
-            velocity.y = Mathf.Min(velocity.y, reducedCeilingVelocity);
+            isCurledUp = true;
+            ballController.ActivateBallMode(velocity);
+            animator.SetBool("bCurlUp", true);
+            animator.SetTrigger("tCurlUp");
         }
-    }
-    private void AdjustVelocityOnWallCollision(Vector3 impactPoint, Vector3 normal, Collider collider)
-    {
-        Vector3 XZNormal = normal;
-        XZNormal.y = 0;
-        XZNormal.Normalize();
-        collidedWallNormals.Add(XZNormal);
+        if (inputButtonUpCurlUp)
+        {
+            isCurledUp = false;
+            velocity = ballController.DeactivateBallMode();
+            currentMaxSpeed = Mathf.Max(currentMaxSpeed, new Vector3(velocity.x, 0, velocity.z).magnitude);
+            animator.SetBool("bCurlUp", false);
+        }
+        inputButtonDownJump = false;
+        inputButtonDownCurlUp = false;
+        inputButtonUpCurlUp = false;
     }
 
     private void ApplyCollidedWallNormals()

@@ -5,6 +5,7 @@ using UnityEngine;
 public class DollyCamera : MonoBehaviour {
 
     public GameObject target;
+    public Vector3 targetOffset;
     private float fPitch;
     private float fYaw;
     public float fDistance = 10;
@@ -28,8 +29,9 @@ public class DollyCamera : MonoBehaviour {
 
         Vector3 v3Offset = Vector3.back;
         v3Offset = Quaternion.Euler(fPitch, fYaw, 0) * v3Offset * fDistance;
-        transform.position = target.transform.position + v3Offset;
-        transform.LookAt(target.transform);
+        Vector3 targetPosition = target.transform.position + target.transform.rotation * targetOffset;
+        transform.position = targetPosition + v3Offset;
+        transform.LookAt(targetPosition);
 	}
 
     public float GetYaw()

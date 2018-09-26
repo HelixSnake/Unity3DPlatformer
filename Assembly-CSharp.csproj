@@ -61,10 +61,16 @@
     </Reference>
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Assets\Rotary Heart\PhysicsDebugExtension\Example\ObjMover.cs" />
+    <Compile Include="Assets\Rotary Heart\PhysicsDebugExtension\Example\PhysicsDebugPreview.cs" />
+    <Compile Include="Assets\Rotary Heart\PhysicsDebugExtension\PhysicsExtension.cs" />
     <Compile Include="Assets\Scripts\Camera\DollyCamera.cs" />
+    <Compile Include="Assets\Scripts\Character\BallCharacterController.cs" />
     <Compile Include="Assets\Scripts\Character\BetterCharacterController.cs" />
     <Compile Include="Assets\Scripts\Character\MainCharacter.cs" />
     <Compile Include="Assets\Scripts\HelperClasses\PhysHelper.cs" />
+    <None Include="Assets\Rotary Heart\PhysicsDebugExtension\GLlineZOff.shader" />
+    <None Include="Assets\Rotary Heart\PhysicsDebugExtension\GLlineZOn.shader" />
     <Reference Include="UnityEditor.StandardEvents">
       <HintPath>E:/UnityPractice/3DPlatformerTest/Library/ScriptAssemblies/UnityEditor.StandardEvents.dll</HintPath>
     </Reference>
@@ -274,6 +280,9 @@
     </Reference>
     <Reference Include="UnityEngine.SpatialTracking">
       <HintPath>E:/Unity/Editor/Data/UnityExtensions/Unity/UnitySpatialTracking/RuntimeEditor/UnityEngine.SpatialTracking.dll</HintPath>
+    </Reference>
+    <Reference Include="UnityGLDebug">
+      <HintPath>E:/UnityPractice/3DPlatformerTest/Assets/Rotary Heart/PhysicsDebugExtension/Plugins/UnityGLDebug.dll</HintPath>
     </Reference>
     <Reference Include="UnityEngine.Analytics">
       <HintPath>C:/Users/Landon-PC/AppData/Local/Unity/cache/packages/packages.unity.com/com.unity.analytics@2.0.16/UnityEngine.Analytics.dll</HintPath>

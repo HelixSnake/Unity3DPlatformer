@@ -10,7 +10,9 @@ public class BetterCharacterController : MonoBehaviour {
     private const float STAIR_SWEEPER_THICKNESS = 0.001f;
     private const float STUCK_BETWEEN_SLOPES_TEST_VALUE = 0.001f;
     private const float STUCK_BETWEEN_SLOPES_MIN_Y = 0.01f;
-    public CapsuleCollider capsuleCollider;
+    //public CapsuleCollider capsuleCollider;
+    public float capsuleRadius = 0.5f;
+    public float capsuleHeight = 2.0f;
     public float slopeLimit = 45;
     public float skinWidth = 0.5f;
     public float minMoveDistance = 0.001f;
@@ -49,6 +51,18 @@ public class BetterCharacterController : MonoBehaviour {
 
     // Update is called once per frame
     void Update() {
+        Vector3 capsuleCenter = transform.position;
+        float pointDist = capsuleHeight / 2 - capsuleRadius;
+
+        RotaryHeart.Lib.PhysicsExtension.DebugExtensions.DebugCapsule(capsuleCenter + pointDist * Vector3.down, capsuleCenter + pointDist * Vector3.up, Color.green, capsuleRadius);
+        RotaryHeart.Lib.PhysicsExtension.DebugExtensions.DebugCircle(capsuleCenter + capsuleHeight / 2 * Vector3.down, Vector3.up, Color.green, capsuleRadius);
+    }
+
+    private void OnDrawGizmosSelected()
+    {
+        Vector3 capsuleCenter = transform.position;
+        float pointDist = capsuleHeight / 2 - capsuleRadius;
+        RotaryHeart.Lib.PhysicsExtension.DebugExtensions.DebugCapsule(capsuleCenter + pointDist * Vector3.down, capsuleCenter + pointDist * Vector3.up, Color.green, capsuleRadius);
     }
 
     private void FixedUpdate()
@@ -80,18 +94,18 @@ public class BetterCharacterController : MonoBehaviour {
         }
 
         float riseAmount = 0;
-        Vector3 capsuleCenter = transform.TransformPoint(capsuleCollider.center);
-        float pointDist = capsuleCollider.height / 2 - capsuleCollider.radius;
+        Vector3 capsuleCenter = transform.position;
+        float pointDist = capsuleHeight / 2 - capsuleRadius;
         RaycastHit[] raycasthits;
-        raycasthits = Physics.CapsuleCastAll(capsuleCenter - pointDist * Vector3.down, capsuleCenter - pointDist * Vector3.up, capsuleCollider.radius,
-            Vector3.down, capsuleCollider.radius + GROUND_CHECK_DISTANCE + skinWidth, geometryCollisionLayers); //first capsule cast, checking for ground. Casts an extra radius and ignores results within the lower hemisphere, in order to imitate a cylinder
+        raycasthits = Physics.CapsuleCastAll(capsuleCenter - pointDist * Vector3.down, capsuleCenter - pointDist * Vector3.up, capsuleRadius,
+            Vector3.down, capsuleRadius + GROUND_CHECK_DISTANCE + skinWidth, geometryCollisionLayers); //first capsule cast, checking for ground. Casts an extra radius and ignores results within the lower hemisphere, in order to imitate a cylinder
         isGrounded = false;
         bool hitGround = false; // did we hit something that's within our "cylinder" the bottom of which is GROUND_CHECK_DISTANCE lower than the bottom of the collision capsule
         foreach (RaycastHit hit in raycasthits)
         {
-            if (hit.point.y > capsuleCenter.y - capsuleCollider.height / 2 - GROUND_CHECK_DISTANCE - skinWidth) //calculating the distance if we were casting a cylinder instead of a capsule
+            if (hit.point.y > capsuleCenter.y - capsuleHeight / 2 - GROUND_CHECK_DISTANCE - skinWidth) //calculating the distance if we were casting a cylinder instead of a capsule
             {
-                riseAmount = hit.point.y - (capsuleCenter.y - capsuleCollider.height / 2 - skinWidth); //calculating the distance if we were casting a cylinder instead of a capsule
+                riseAmount = hit.point.y - (capsuleCenter.y - capsuleHeight / 2 - skinWidth); //calculating the distance if we were casting a cylinder instead of a capsule
                 riseAmount = Mathf.Max(riseAmount, 0);
                 hitGround = true;
                 if (IsGround(hit.normal))
@@ -104,8 +118,8 @@ public class BetterCharacterController : MonoBehaviour {
         if (hitGround && !isGrounded)
         {
             RaycastHit groundHitinfo;
-            if (PhysHelper.FakeCylinderCast(FAKE_CAPSULE_CAST_BOXES, capsuleCollider.height - capsuleCollider.radius * 2, capsuleCollider.radius, capsuleCenter, Vector3.down, out groundHitinfo,
-                capsuleCollider.radius + skinWidth, geometryCollisionLayers, true)) // fake cylinder cast, checking for steep slopes and prevent us from thinking we're on ground if the slope is too steep
+            if (PhysHelper.FakeCylinderCast(FAKE_CAPSULE_CAST_BOXES, capsuleHeight - capsuleRadius * 2, capsuleRadius, capsuleCenter, Vector3.down, out groundHitinfo,
+                capsuleRadius + skinWidth, geometryCollisionLayers, false)) // fake cylinder cast, checking for steep slopes and prevent us from thinking we're on ground if the slope is too steep
             {
                 if (IsGround(groundHitinfo.normal))
                 {
@@ -117,7 +131,7 @@ public class BetterCharacterController : MonoBehaviour {
         {
             float amtToMoveUp = Mathf.Min(platformRisingSpeed * Time.fixedDeltaTime, riseAmount);
             RaycastHit hitinfo;
-            bool hitUp = Physics.CapsuleCast(capsuleCenter - pointDist * Vector3.down, capsuleCenter - pointDist * Vector3.up, capsuleCollider.radius,
+            bool hitUp = Physics.CapsuleCast(capsuleCenter - pointDist * Vector3.down, capsuleCenter - pointDist * Vector3.up, capsuleRadius,
             Vector3.up, out hitinfo, amtToMoveUp + skinWidth, geometryCollisionLayers); // cast to check if we can rise
             if (!hitUp) AttemptSetPosition(transform.position + Vector3.up * amtToMoveUp);
             else if (hitinfo.distance > skinWidth)
@@ -132,13 +146,14 @@ public class BetterCharacterController : MonoBehaviour {
         lastMoveVector = moveVector;
         float startY = transform.position.y;
         Vector3 newMoveVector = moveVector;
-        Vector3 capsuleCenter = transform.TransformPoint(capsuleCollider.center);
-        float pointDist = capsuleCollider.height / 2 - capsuleCollider.radius;
+        Vector3 capsuleCenter = transform.position;
+        float pointDist = capsuleHeight / 2 - capsuleRadius;
+
         RaycastHit[] raycasthits;
         if (moveVector.y < 0)
         {
-            raycasthits = Physics.CapsuleCastAll(capsuleCenter - pointDist * Vector3.down, capsuleCenter - pointDist * Vector3.up, capsuleCollider.radius,
-            Vector3.down, capsuleCollider.radius - moveVector.y + skinWidth, geometryCollisionLayers); // first capsule cast, checking for ground. Casts an extra radius and ignores results within the lower hemisphere, in order to imitate a cylinder
+            raycasthits = Physics.CapsuleCastAll(capsuleCenter - pointDist * Vector3.down, capsuleCenter - pointDist * Vector3.up, capsuleRadius,
+            Vector3.down, capsuleRadius - moveVector.y + skinWidth, geometryCollisionLayers); // first capsule cast, checking for ground. Casts an extra radius and ignores results within the lower hemisphere, in order to imitate a cylinder
             float minDistance = -moveVector.y;
             bool hitGround = false;
             Vector3 groundHitNormal = Vector3.zero;
@@ -146,7 +161,7 @@ public class BetterCharacterController : MonoBehaviour {
             Collider groundHitCollider = null;
             foreach (RaycastHit hit in raycasthits)
             {
-                float distToPoint = (capsuleCenter.y - capsuleCollider.height / 2) - hit.point.y; //calculating the distance if we were casting a cylinder instead of a capsule
+                float distToPoint = (capsuleCenter.y - capsuleHeight / 2) - hit.point.y; //calculating the distance if we were casting a cylinder instead of a capsule
                 if (distToPoint < minDistance)
                 {
                     hitGround = true;
@@ -159,8 +174,8 @@ public class BetterCharacterController : MonoBehaviour {
             if (hitGround)
             {
                 RaycastHit groundHitinfo;
-                if (PhysHelper.FakeCylinderCast(FAKE_CAPSULE_CAST_BOXES, capsuleCollider.height - capsuleCollider.radius * 2, capsuleCollider.radius, capsuleCenter, Vector3.down, out groundHitinfo,
-                    capsuleCollider.radius - moveVector.y + skinWidth, geometryCollisionLayers)) // Fake cylinder cast to check for steep slopes and prevent stopping if the slope is too steep
+                if (PhysHelper.FakeCylinderCast(FAKE_CAPSULE_CAST_BOXES, capsuleHeight - capsuleRadius * 2, capsuleRadius, capsuleCenter, Vector3.down, out groundHitinfo,
+                    capsuleRadius - moveVector.y + skinWidth, geometryCollisionLayers)) // Fake cylinder cast to check for steep slopes and prevent stopping if the slope is too steep
                 {
                     if (IsGround(groundHitinfo.normal))
                     {
@@ -191,18 +206,18 @@ public class BetterCharacterController : MonoBehaviour {
         }*/
 
         RaycastHit hitinfo;
-        if (Physics.CapsuleCast(capsuleCenter - pointDist * Vector3.down, capsuleCenter - pointDist * Vector3.up, capsuleCollider.radius,
+        if (Physics.CapsuleCast(capsuleCenter - pointDist * Vector3.down, capsuleCenter - pointDist * Vector3.up, capsuleRadius,
         newMoveVector.normalized, out hitinfo, newMoveVector.magnitude + skinWidth, geometryCollisionLayers))
         {
             if (stairLocations.Length > 0 && Vector3.Dot(newMoveVector.normalized, Vector3.up) < sinStairClimbAngle - 0.001f) // if we hit the stair climbing plane before we hit our target. If our move vector is steeper than the stair climbing angle, disregard.
             {
-                //Debug.DrawRay(transform.position - (capsuleCollider.height / 2 - 0.01f) * Vector3.down, newMoveVector.normalized * distanceToStairPlanes);
+                //Debug.DrawRay(transform.position - (capsuleHeight / 2 - 0.01f) * Vector3.down, newMoveVector.normalized * distanceToStairPlanes);
 
                 //AttemptMove(transform.position + newMoveVector.normalized * distanceToStairPlanes);
                 //Vector3 remainingVector = newMoveVector - newMoveVector.normalized * (hitinfo.distance);
                 Vector3 stairSlideVector = GetStairClimbVector(moveVector);
 
-                //Debug.DrawRay(transform.position + (capsuleCollider.height / 2 - 0.01f) * Vector3.down + newMoveVector.normalized * distanceToStairPlanes, stairSlideVector);
+                //Debug.DrawRay(transform.position + (capsuleHeight / 2 - 0.01f) * Vector3.down + newMoveVector.normalized * distanceToStairPlanes, stairSlideVector);
 
                 DoMoveSlide(stairSlideVector, MAX_PHYSICS_SLIDE_ITERATIONS, stairLocations, true); // see DoMoveSlide comment
             }
@@ -265,21 +280,21 @@ public class BetterCharacterController : MonoBehaviour {
                 distanceToStairPlanes = stairPlaneDistance;
         }*/
 
-        Vector3 capsuleCenter = transform.TransformPoint(capsuleCollider.center);
-        float pointDist = capsuleCollider.height / 2 - capsuleCollider.radius;
+        Vector3 capsuleCenter = transform.position;
+        float pointDist = capsuleHeight / 2 - capsuleRadius;
         RaycastHit hitinfo;
-        if (Physics.CapsuleCast(capsuleCenter - pointDist * Vector3.down, capsuleCenter - pointDist * Vector3.up, capsuleCollider.radius,
+        if (Physics.CapsuleCast(capsuleCenter - pointDist * Vector3.down, capsuleCenter - pointDist * Vector3.up, capsuleRadius,
         inVector.normalized, out hitinfo, inVector.magnitude + skinWidth, geometryCollisionLayers)) // Capsule Cast that checks our slide move, the same way as you would for a regular move
         {
             if (stairClimbing && Vector3.Dot(inVector.normalized, Vector3.up) < sinStairClimbAngle - 0.001f) // if we hit the stair climbing plane before we hit our target. If our move vector is steeper than the stair climbing angle, disregard.
             {
-                //Debug.DrawRay(transform.position - (capsuleCollider.height / 2 - 0.01f) * Vector3.down, inVector.normalized * distanceToStairPlanes);
+                //Debug.DrawRay(transform.position - (capsuleHeight / 2 - 0.01f) * Vector3.down, inVector.normalized * distanceToStairPlanes);
 
                 //AttemptMove(transform.position + inVector.normalized * distanceToStairPlanes);
                 //Vector3 remainingVector = inVector - inVector.normalized * (hitinfo.distance);
                 Vector3 stairSlideVector = GetStairClimbVector(inVector);
 
-                //Debug.DrawRay(transform.position - (capsuleCollider.height / 2 - 0.01f) * Vector3.down + inVector.normalized * distanceToStairPlanes, stairSlideVector);
+                //Debug.DrawRay(transform.position - (capsuleHeight / 2 - 0.01f) * Vector3.down + inVector.normalized * distanceToStairPlanes, stairSlideVector);
 
                 DoMoveSlide(stairSlideVector, iterations - 1, stairLocations, stairClimbing); // see DoMoveSlide comment
             }
@@ -327,16 +342,16 @@ public class BetterCharacterController : MonoBehaviour {
         lastMoveVectorXZ.y = 0;
         float downwardsMovement = Mathf.Tan(slopeLimit * Mathf.Deg2Rad) * lastMoveVectorXZ.magnitude;
 
-        Vector3 capsuleCenter = transform.TransformPoint(capsuleCollider.center);
-        float pointDist = capsuleCollider.height / 2 - capsuleCollider.radius;
+        Vector3 capsuleCenter = transform.position;
+        float pointDist = capsuleHeight / 2 - capsuleRadius;
         RaycastHit[] raycasthits;
-        raycasthits = Physics.CapsuleCastAll(capsuleCenter - pointDist * Vector3.down, capsuleCenter - pointDist * Vector3.up, capsuleCollider.radius,
-            Vector3.down, capsuleCollider.radius + downwardsMovement + skinWidth, geometryCollisionLayers); // capsule cast, checking for ground. Casts an extra radius and ignores results within the lower hemisphere, in order to imitate a cylinder
+        raycasthits = Physics.CapsuleCastAll(capsuleCenter - pointDist * Vector3.down, capsuleCenter - pointDist * Vector3.up, capsuleRadius,
+            Vector3.down, capsuleRadius + downwardsMovement + skinWidth, geometryCollisionLayers); // capsule cast, checking for ground. Casts an extra radius and ignores results within the lower hemisphere, in order to imitate a cylinder
         float minDistance = downwardsMovement;
         bool doDownwardsMovement = false;
         foreach (RaycastHit hit in raycasthits)
         {
-            float distToPoint = (capsuleCenter.y - capsuleCollider.height / 2) - hit.point.y; //calculating the distance if we were casting a cylinder instead of a capsule
+            float distToPoint = (capsuleCenter.y - capsuleHeight / 2) - hit.point.y; //calculating the distance if we were casting a cylinder instead of a capsule
             if (distToPoint < minDistance)
             {
                 minDistance = distToPoint;
@@ -358,7 +373,7 @@ public class BetterCharacterController : MonoBehaviour {
         for (int i = 0; i < numStairChecks; i++)
         {
             Vector3 stairLocation;
-            if (StairClimbSweepPart(movement, groundCheck, i, capsuleCollider.radius / numStairChecks, out stairLocation))
+            if (StairClimbSweepPart(movement, groundCheck, i, capsuleRadius / numStairChecks, out stairLocation))
             {
                 foundLocations.Add(stairLocation);
             }
@@ -370,20 +385,20 @@ public class BetterCharacterController : MonoBehaviour {
     private bool StairClimbSweepPart(Vector3 movement, bool groundCheck, int checkIndex, float width, out Vector3 stairLocation)
     {
         stairLocation = Vector3.zero;
-        Vector3 capsuleCenter = transform.TransformPoint(capsuleCollider.center);
+        Vector3 capsuleCenter = transform.position;
         if (Mathf.Abs(movement.x) < 0.001 && Mathf.Abs(movement.z) < 0.001) return false;
         Vector3 XZMovement = new Vector3(movement.x, 0, movement.z);
         Vector3 halfExtents = new Vector3(width, STAIR_SWEEPER_THICKNESS, maxStairHeight / sinStairClimbAngle / 2);
         float startDistance = maxStairHeight / tanStairClimbAngle / 2;
         Vector3 startPos = new Vector3(0, maxStairHeight / 2 + STAIR_SWEEPER_THICKNESS, 0);
         startPos += -XZMovement.normalized * startDistance;
-        startPos += Vector3.Cross(XZMovement.normalized, Vector3.up) * (capsuleCollider.radius * (1 - 1/numStairChecks - 1/numStairChecks * checkIndex * 2)); // offset our startpos depending on which of the multiple stairchecks it is
-        startPos += capsuleCenter + (capsuleCollider.height / 2) * Vector3.down;
+        startPos += Vector3.Cross(XZMovement.normalized, Vector3.up) * (capsuleRadius * (1 - 1/numStairChecks - 1/numStairChecks * checkIndex * 2)); // offset our startpos depending on which of the multiple stairchecks it is
+        startPos += capsuleCenter + (capsuleHeight / 2) * Vector3.down;
         Quaternion yawRotation = Quaternion.LookRotation(new Vector3(movement.x, 0, movement.z));
         Quaternion pitchRotation = Quaternion.Euler(-stairClimbAngle, 0, 0);
         RaycastHit hitinfo = new RaycastHit();
         Quaternion orientation = yawRotation * pitchRotation;
-        float addedDistance = capsuleCollider.radius * Mathf.Tan(stairClimbAngle * Mathf.Deg2Rad / 2);
+        float addedDistance = capsuleRadius * Mathf.Tan(stairClimbAngle * Mathf.Deg2Rad / 2);
         Vector3 castVector = XZMovement.normalized * (XZMovement.magnitude + addedDistance + startDistance * 2);
         bool didCollide = Physics.BoxCast(startPos, halfExtents, castVector.normalized, out hitinfo, orientation,
             castVector.magnitude, geometryCollisionLayers);
@@ -490,7 +505,7 @@ public class BetterCharacterController : MonoBehaviour {
     {
         Vector3 startingMoveVector = moveVector;
         Vector3 normal = -moveVector;
-        Vector3 sphereStart = transform.position + (capsuleCollider.height / 2 - capsuleCollider.radius) * Vector3.down;
+        Vector3 sphereStart = transform.position + (capsuleHeight / 2 - capsuleRadius) * Vector3.down;
         normal.y = 0;
         normal.y = normal.magnitude / tanStairClimbAngle;
         normal.Normalize();
@@ -506,7 +521,7 @@ public class BetterCharacterController : MonoBehaviour {
         Debug.DrawRay(sphereStart, moveVector);
 
         Debug.DrawRay(stairPoint, normal);
-        float removedCastDistance = capsuleCollider.radius / Vector3.Dot(normal, -moveVector.normalized);
+        float removedCastDistance = capsuleRadius / Vector3.Dot(normal, -moveVector.normalized);
         float castDistance = moveVector.magnitude - removedCastDistance;
         
         if (castDistance > startingMoveVector.magnitude + 0.01f)
@@ -527,8 +542,8 @@ public class BetterCharacterController : MonoBehaviour {
 
     private bool AttemptSetPosition(Vector3 position)
     {
-        float pointDist = capsuleCollider.height / 2 - capsuleCollider.radius;
-        RaycastHit[] hitinfos = Physics.CapsuleCastAll(position + pointDist * Vector3.up, position + pointDist * Vector3.down, capsuleCollider.radius, Vector3.down, 0.001f, geometryCollisionLayers);
+        float pointDist = capsuleHeight / 2 - capsuleRadius;
+        RaycastHit[] hitinfos = Physics.CapsuleCastAll(position + pointDist * Vector3.up, position + pointDist * Vector3.down, capsuleRadius, Vector3.down, 0.001f, geometryCollisionLayers);
         foreach (RaycastHit hitinfo in hitinfos)
         {
             if (hitinfo.distance == 0) // If the attempted move position is obstructed

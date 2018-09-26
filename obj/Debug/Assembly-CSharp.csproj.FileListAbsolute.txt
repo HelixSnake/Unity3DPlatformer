@@ -166,3 +166,4 @@ E:\UnityPractice\3DPlatformerTest\obj\Debug\Assembly-CSharp.csproj.CoreCompileIn
 E:\UnityPractice\3DPlatformerTest\obj\Debug\Assembly-CSharp.csproj.CopyComplete
 E:\UnityPractice\3DPlatformerTest\obj\Debug\Assembly-CSharp.dll
 E:\UnityPractice\3DPlatformerTest\obj\Debug\Assembly-CSharp.pdb
+E:\UnityPractice\3DPlatformerTest\Temp\bin\Debug\UnityGLDebug.dll
