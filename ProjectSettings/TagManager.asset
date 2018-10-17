@@ -14,9 +14,9 @@ TagManager:
   - 
   - 
   - PostProcessing
-  - Geometry
+  - StaticGeometry
   - MainCharacter
-  - 
+  - MovingGeometry
   - 
   - 
   - 

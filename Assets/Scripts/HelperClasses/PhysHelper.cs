@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using UnityEngine;
 
 public class PhysHelper {
-    ///<summary>Do a fake cylinder cast made out of multiple box casts (verticle cylinders supported only for now)</summary>
+    ///<summary>Do a fake cylinder cast made out of multiple box casts (vertical cylinders supported only for now)</summary>
     static public bool FakeCylinderCast(int numBoxes, float height, float radius, Vector3 center, Vector3 direction, out RaycastHit hitinfo, float distance, int layerMask, bool drawDebug = false)
     {
         bool collided = false;

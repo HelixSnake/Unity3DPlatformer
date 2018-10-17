@@ -82,6 +82,10 @@ public class MainCharacter : MonoBehaviour
             DoJumpingCode();
             DoNormalMovementCode();
         }
+        else
+        {
+            DoCurledMovementCode();
+        }
         DoAnimatorCode();
     }
 
@@ -125,7 +129,6 @@ public class MainCharacter : MonoBehaviour
         v3TargetVelocity = Vector3.zero;
         v3TargetVelocity.x = fInputX;
         v3TargetVelocity.z = fInputY;
-        v3TargetVelocity.Normalize();
         v3TargetVelocity *= currentMaxSpeed;
     }
 
@@ -144,6 +147,8 @@ public class MainCharacter : MonoBehaviour
 
     private void DoNormalMovementCode()
     {
+        controller.isMovingUp = velocity.y > 0;
+
         Vector3 v3XYVelocity = velocity;
         v3XYVelocity.y = 0;
 
@@ -196,6 +201,11 @@ public class MainCharacter : MonoBehaviour
 
         ApplyCollidedWallNormals();
     }
+    
+    private void DoCurledMovementCode()
+    {
+        ballController.Move(v3TargetVelocity);
+    }
 
     private void DoAnimatorCode()
     {
@@ -224,7 +234,7 @@ public class MainCharacter : MonoBehaviour
             }
             animator.SetBool("bIsLanding", false);
         }
-        if (inputButtonDownJump && (controller.isGrounded || jumpForgivenessTimer > 0))
+        if (inputButtonDownJump && (controller.isGrounded || jumpForgivenessTimer > 0) && !isCurledUp)
         {
             velocity.y = jumpForce;
             animator.SetTrigger("tJump");
@@ -236,20 +246,24 @@ public class MainCharacter : MonoBehaviour
         if (inputButtonDownCurlUp)
         {
             isCurledUp = true;
+            controller.enabled = false;
             ballController.ActivateBallMode(velocity);
             animator.SetBool("bCurlUp", true);
             animator.SetTrigger("tCurlUp");
+            inputButtonUpCurlUp = false;
         }
         if (inputButtonUpCurlUp)
         {
-            isCurledUp = false;
-            velocity = ballController.DeactivateBallMode();
-            currentMaxSpeed = Mathf.Max(currentMaxSpeed, new Vector3(velocity.x, 0, velocity.z).magnitude);
-            animator.SetBool("bCurlUp", false);
+            if (ballController.DeactivateBallMode(controller, out velocity))
+            {
+                isCurledUp = false;
+                currentMaxSpeed = Mathf.Max(currentMaxSpeed, new Vector3(velocity.x, 0, velocity.z).magnitude);
+                animator.SetBool("bCurlUp", false);
+                inputButtonUpCurlUp = false;
+            }
         }
         inputButtonDownJump = false;
         inputButtonDownCurlUp = false;
-        inputButtonUpCurlUp = false;
     }
 
     private void ApplyCollidedWallNormals()

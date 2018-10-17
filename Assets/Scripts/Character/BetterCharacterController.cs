@@ -1,6 +1,8 @@
 ﻿using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using DebugPhysics = RotaryHeart.Lib.PhysicsExtension.Physics;
+using DebugExtentions = RotaryHeart.Lib.PhysicsExtension.DebugExtensions;
 
 public class BetterCharacterController : MonoBehaviour {
 
@@ -14,7 +16,7 @@ public class BetterCharacterController : MonoBehaviour {
     public float capsuleRadius = 0.5f;
     public float capsuleHeight = 2.0f;
     public float slopeLimit = 45;
-    public float skinWidth = 0.5f;
+    public float skinWidth = 0.005f;
     public float minMoveDistance = 0.001f;
     [Tooltip("If we're at the edge of the platform and sunk slightly below, how fast should we rise up")]
     public float platformRisingSpeed = 1;
@@ -23,10 +25,12 @@ public class BetterCharacterController : MonoBehaviour {
     public float numStairChecks = 2; //use at least 2 for proper results
     [Tooltip("When climbing, this is the angle the stair check should be. The character will move at this angle when climbing stairs.")]
     public float stairClimbAngle = 45; // For best results this should be equal to or less than slopeLimit
-    [HideInInspector]
-    [System.NonSerialized]
+    //[HideInInspector]
+    //[System.NonSerialized]
     public bool isGrounded;
     public float onStairsDelayBeforeFalling = 0.1f;
+    public bool isMovingUp = false;
+
     private float onStairsFallDelayTimer = 0;
     private float cosSlopeLimit;
     private float sinStairClimbAngle;
@@ -37,16 +41,24 @@ public class BetterCharacterController : MonoBehaviour {
     public event CollisionEvent OnMoveGroundCollision;
     public event CollisionEvent OnMoveCollision; // doesn't fire if we collide with the ground, usually
     private int geometryCollisionLayers;
+    private int MovingGeometryLayer;
     private Vector3 lastMoveVector;
     private bool stuckBetweenSlopes;
+    private CapsuleCollider capsuleCollider;
+    private MovingObject groundParent;
 
     // Use this for initialization
     void Start() {
+        capsuleCollider = gameObject.AddComponent<CapsuleCollider>();
+        capsuleCollider.direction = 1;
+        capsuleCollider.height = capsuleHeight;
+        capsuleCollider.radius = capsuleRadius;
         cosSlopeLimit = Mathf.Cos(slopeLimit * Mathf.Deg2Rad);
         sinStairClimbAngle = Mathf.Sin(stairClimbAngle * Mathf.Deg2Rad);
         cosStairClimbAngle = Mathf.Cos(stairClimbAngle * Mathf.Deg2Rad);
         tanStairClimbAngle = Mathf.Tan(stairClimbAngle * Mathf.Deg2Rad);
-        geometryCollisionLayers = 1 << LayerMask.NameToLayer("Geometry");
+        geometryCollisionLayers = 1 << LayerMask.NameToLayer("StaticGeometry") | 1 << LayerMask.NameToLayer("MovingGeometry");
+        MovingGeometryLayer = LayerMask.NameToLayer("MovingGeometry");
     }
 
     // Update is called once per frame
@@ -54,28 +66,46 @@ public class BetterCharacterController : MonoBehaviour {
         Vector3 capsuleCenter = transform.position;
         float pointDist = capsuleHeight / 2 - capsuleRadius;
 
-        RotaryHeart.Lib.PhysicsExtension.DebugExtensions.DebugCapsule(capsuleCenter + pointDist * Vector3.down, capsuleCenter + pointDist * Vector3.up, Color.green, capsuleRadius);
-        RotaryHeart.Lib.PhysicsExtension.DebugExtensions.DebugCircle(capsuleCenter + capsuleHeight / 2 * Vector3.down, Vector3.up, Color.green, capsuleRadius);
+        DebugExtentions.DebugCapsule(capsuleCenter + pointDist * Vector3.down, capsuleCenter + pointDist * Vector3.up, Color.green, capsuleRadius);
+        DebugExtentions.DebugCircle(capsuleCenter + capsuleHeight / 2 * Vector3.down, Vector3.up, Color.green, capsuleRadius);
     }
 
     private void OnDrawGizmosSelected()
     {
         Vector3 capsuleCenter = transform.position;
         float pointDist = capsuleHeight / 2 - capsuleRadius;
-        RotaryHeart.Lib.PhysicsExtension.DebugExtensions.DebugCapsule(capsuleCenter + pointDist * Vector3.down, capsuleCenter + pointDist * Vector3.up, Color.green, capsuleRadius);
+        DebugExtentions.DebugCapsule(capsuleCenter + pointDist * Vector3.down, capsuleCenter + pointDist * Vector3.up, Color.green, capsuleRadius);
     }
 
     private void FixedUpdate()
     {
-        TestForGround();
+        if (!TestForGround())
+        {
+            ClearGroundParent();
+        }
     }
 
-    private void TestForGround()
+    private void OnDisable()
+    {
+        if (capsuleCollider)
+            capsuleCollider.enabled = false;
+    }
+    private void OnEnable()
+    {
+        if (capsuleCollider)
+            capsuleCollider.enabled = true;
+    }
+
+    private bool TestForGround() // returns false if we skip the test for whetever reason
     {
         if (stuckBetweenSlopes)
         {
             stuckBetweenSlopes = false;
-            return;
+            return false;
+        }
+        if (isMovingUp) {
+            isGrounded = false;
+            return false;
         }
         //check to see if we're climbing stairs; if so, stay on ground
         if (isGrounded)
@@ -83,13 +113,13 @@ public class BetterCharacterController : MonoBehaviour {
             if (StairClimbSweep(ref lastMoveVector, true).Length > 0)
             {
                 onStairsFallDelayTimer = onStairsDelayBeforeFalling;
-                return;
+                return false;
             }
             else
             {
                 onStairsFallDelayTimer -= Time.fixedDeltaTime;
                 if (onStairsFallDelayTimer > 0)
-                    return;
+                    return false;
             }
         }
 
@@ -100,6 +130,7 @@ public class BetterCharacterController : MonoBehaviour {
         raycasthits = Physics.CapsuleCastAll(capsuleCenter - pointDist * Vector3.down, capsuleCenter - pointDist * Vector3.up, capsuleRadius,
             Vector3.down, capsuleRadius + GROUND_CHECK_DISTANCE + skinWidth, geometryCollisionLayers); //first capsule cast, checking for ground. Casts an extra radius and ignores results within the lower hemisphere, in order to imitate a cylinder
         isGrounded = false;
+        Collider groundCollider = null;
         bool hitGround = false; // did we hit something that's within our "cylinder" the bottom of which is GROUND_CHECK_DISTANCE lower than the bottom of the collision capsule
         foreach (RaycastHit hit in raycasthits)
         {
@@ -111,6 +142,7 @@ public class BetterCharacterController : MonoBehaviour {
                 if (IsGround(hit.normal))
                 {
                     isGrounded = true;
+                    groundCollider = hit.collider;
                     break;
                 }
             }
@@ -127,6 +159,7 @@ public class BetterCharacterController : MonoBehaviour {
                 }
             }
         }
+        bool groundParentFound = false;
         if (isGrounded)
         {
             float amtToMoveUp = Mathf.Min(platformRisingSpeed * Time.fixedDeltaTime, riseAmount);
@@ -138,8 +171,27 @@ public class BetterCharacterController : MonoBehaviour {
             {
                 AttemptSetPosition(transform.position + Vector3.up * (hitinfo.distance - skinWidth));
             }
+            if (groundCollider && groundCollider.gameObject.layer == MovingGeometryLayer)
+            {
+                MovingObject groundMovingObject = groundCollider.GetComponent<MovingObject>();
+                if (groundMovingObject)
+                {
+                    SetGroundParent(groundMovingObject);
+                    groundParentFound = true;
+                }
+            }
         }
+        else
+        {
+            ClearGroundParent();
+        }
+        if (!groundParentFound)
+        {
+            ClearGroundParent();
+        }
+        return true;
     }
+
     ///<summary>Move the character in a vector direction, with corrections for platform edges and steep slopes</summary>
     public void Move(Vector3 moveVector, bool jump = false)
     {
@@ -553,5 +605,112 @@ public class BetterCharacterController : MonoBehaviour {
         }
         transform.position = position;
         return true;
+    }
+
+    ///<summary>Casts in 26 directions to determine the best direction to go to escape the intersection. Don't make the distance less than the radius * 2!</summary>
+    public bool ResolveIntersection(float distance)
+    {
+        bool resolvedIntersection = false;
+        RaycastHit hitinfo;
+        Collider[] colBuffer = new Collider[1];
+        float pointDist = capsuleHeight / 2 - capsuleRadius;
+        Vector3 point1 = transform.position + pointDist * Vector3.down;
+        Vector3 point2 = transform.position + pointDist * Vector3.up;
+
+        float minDistance = distance;
+        Vector3 desiredPosition = transform.position;
+
+        if (Physics.OverlapCapsuleNonAlloc(point1, point2, capsuleRadius, colBuffer, geometryCollisionLayers) == 0)
+        {
+            return true; // There was no intersection to resolve.
+        }
+
+        for (int i = -1; i <= 1; i++)
+        {
+            for (int j = -1; j <= 1; j++)
+            {
+                for (int k = -1; k <= 1; k++)
+                {
+                    if (i == 0 && j == 0 && k == 0) continue;
+                    Vector3 direction = new Vector3(i, j, k);
+                    direction.Normalize();
+                    Vector3 castOrigin;
+                    float castBackDistance;
+                    if (Physics.CapsuleCast(point1, point2, capsuleRadius, direction, out hitinfo, distance + skinWidth, geometryCollisionLayers))
+                    {
+                        castOrigin = transform.position + (hitinfo.distance - skinWidth) * direction;
+                        castBackDistance = hitinfo.distance;
+                    }
+                    else
+                    {
+                        castOrigin = transform.position + distance * direction;
+                        castBackDistance = distance;
+                    }
+                    Vector3 newPoint1 = castOrigin + pointDist * Vector3.down;
+                    Vector3 newPoint2 = castOrigin + pointDist * Vector3.up;
+                    if (Physics.OverlapCapsuleNonAlloc(newPoint1, newPoint2, capsuleRadius, colBuffer, geometryCollisionLayers) > 0)
+                    {
+                        continue;
+                    }
+                    /*if (DebugPhysics.CapsuleCast(newPoint1, newPoint2, capsuleRadius, -direction, out hitinfo, castBackDistance + skinWidth, geometryCollisionLayers,
+                        DebugPhysics.PreviewCondition.Editor, 1, Color.red, Color.green))*/
+                    if (Physics.CapsuleCast(newPoint1, newPoint2, capsuleRadius, -direction, out hitinfo, castBackDistance + skinWidth, geometryCollisionLayers))
+                    {
+                        Vector3 endPosition = castOrigin - direction * (hitinfo.distance - skinWidth);
+                        float endPosDistance = (this.transform.position - endPosition).magnitude;
+                        if (endPosDistance < minDistance)
+                        {
+                            minDistance = endPosDistance;
+                            desiredPosition = endPosition;
+                            resolvedIntersection = true;
+                        }
+                    }
+                }
+            }
+        }
+        if (resolvedIntersection)
+        {
+            AttemptSetPosition(desiredPosition);
+        }
+        return resolvedIntersection;
+    }
+
+    public void ResolveMovingObjIntersection(Collider collider)
+    {
+        Vector3 resolveDirection;
+        float resolveDistance;
+        if (!Physics.ComputePenetration(capsuleCollider, transform.position, Quaternion.identity,
+            collider, collider.transform.position, collider.transform.rotation, out resolveDirection, out resolveDistance))
+        {
+            return; //No penetration
+        }
+        if (!AttemptSetPosition(transform.position + (resolveDistance + skinWidth) * resolveDirection))
+        {
+            Debug.Log("failed to set position");
+        }
+    }
+
+    private void SetGroundParent(MovingObject movingObject)
+    {
+        if (groundParent != null)
+        {
+            groundParent.OnPositionMoved -= MoveWithGroundParent;
+        }
+        groundParent = movingObject;
+        groundParent.OnPositionMoved += MoveWithGroundParent;
+    }
+
+    private void ClearGroundParent()
+    {
+        if (!groundParent) return;
+        groundParent.OnPositionMoved -= MoveWithGroundParent;
+        groundParent = null;
+    }
+
+    private void MoveWithGroundParent(Vector3 velocity)
+    {
+        velocity.y -= skinWidth; //Move the player down slightly less to guarantee they stay on the ground
+        if (velocity.y > 0) velocity.y = 0;
+        Move(velocity);
     }
 }

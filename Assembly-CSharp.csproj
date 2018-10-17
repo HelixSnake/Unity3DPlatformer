@@ -68,7 +68,11 @@
     <Compile Include="Assets\Scripts\Character\BallCharacterController.cs" />
     <Compile Include="Assets\Scripts\Character\BetterCharacterController.cs" />
     <Compile Include="Assets\Scripts\Character\MainCharacter.cs" />
+    <Compile Include="Assets\Scripts\CharacterPusher.cs" />
     <Compile Include="Assets\Scripts\HelperClasses\PhysHelper.cs" />
+    <Compile Include="Assets\Scripts\MaxAngularVelocitySetter.cs" />
+    <Compile Include="Assets\Scripts\MovingObject.cs" />
+    <Compile Include="Assets\Scripts\PFollowEllipse.cs" />
     <None Include="Assets\Rotary Heart\PhysicsDebugExtension\GLlineZOff.shader" />
     <None Include="Assets\Rotary Heart\PhysicsDebugExtension\GLlineZOn.shader" />
     <Reference Include="UnityEditor.StandardEvents">
