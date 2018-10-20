@@ -57,6 +57,7 @@ public class MainCharacter : MonoBehaviour
         velocity = Vector3.zero;
         controller.OnMoveCollision += AdjustVelocityOnCeilingCollision;
         controller.OnMoveCollision += AdjustVelocityOnWallCollision;
+        controller.OnDisconnectFromGroundParent += AdjustVelocityOnLeaveMovingPlatform;
         maxCeilingAngleCos = Mathf.Cos(maxCeilingAngle);
         superSprintTimer = 0;
     }
@@ -108,7 +109,10 @@ public class MainCharacter : MonoBehaviour
     {
         velocity.y -= gravity * Time.fixedDeltaTime;
         velocity.y = Mathf.Max(velocity.y, -terminalVelocity);
-        if (controller.isGrounded) velocity.y = Mathf.Max(velocity.y, -0.01f);
+        if (controller.isGrounded)
+        {
+            velocity.y = Mathf.Max(velocity.y, -0.01f);
+        }
     }
 
     private void GetInputLocalToCamera()
@@ -281,5 +285,12 @@ public class MainCharacter : MonoBehaviour
         collidedWallNormals.Clear();
 
         velocity = new Vector3(XZVelocity.x, velocity.y, XZVelocity.z);
+    }
+
+    private void AdjustVelocityOnLeaveMovingPlatform(Vector3 groundVelocity)
+    {
+        velocity.y = isJumpingUp ? velocity.y : groundVelocity.y;
+        velocity.x = groundVelocity.x;
+        velocity.z = groundVelocity.z;
     }
 }

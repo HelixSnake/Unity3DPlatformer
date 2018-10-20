@@ -23,15 +23,26 @@ public class MovingObject: MonoBehaviour {
     {
         Vector3 oldPos = transform.position;
         if (!rb) return;
-        transform.position = newPos;
         velocity = newPos - oldPos;
+        if (velocity.y < 0)
+        {
+            transform.position = newPos;
+            if (OnPositionMoved != null)
+            {
+                OnPositionMoved(velocity);
+            }
+        }
+        else
+        {
+            if (OnPositionMoved != null)
+            {
+                OnPositionMoved(velocity);
+            }
+            transform.position = newPos;
+        }
         if (characterPusher)
         {
             characterPusher.ResolveAllCollisions();
-        }
-        if (OnPositionMoved != null)
-        {
-            OnPositionMoved(velocity);
         }
     }
 

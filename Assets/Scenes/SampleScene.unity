@@ -4775,7 +4775,7 @@ Transform:
   m_PrefabInternal: {fileID: 0}
   m_GameObject: {fileID: 742718603}
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: -4.58, y: 2.3, z: -31.998}
+  m_LocalPosition: {x: -4.58, y: 4.11, z: -31.998}
   m_LocalScale: {x: 4.3882, y: 1, z: 5.2694}
   m_Children: []
   m_Father: {fileID: 0}
@@ -4795,8 +4795,8 @@ MonoBehaviour:
   velocity: {x: 0, y: 0, z: 0}
   characterPusher: {fileID: 0}
   xDirectionAndDistance: {x: 5, y: 0, z: 0}
-  yDirectionAndDistance: {x: 0, y: 0, z: 5}
-  timeForOneRotation: 1
+  yDirectionAndDistance: {x: 0, y: 1, z: 0}
+  timeForOneRotation: 4
 --- !u!54 &742718609
 Rigidbody:
   m_ObjectHideFlags: 0

@@ -40,12 +40,14 @@ public class BetterCharacterController : MonoBehaviour {
     public delegate void CollisionEvent(Vector3 impactPoint, Vector3 normal, Collider collider);
     public event CollisionEvent OnMoveGroundCollision;
     public event CollisionEvent OnMoveCollision; // doesn't fire if we collide with the ground, usually
+    public event System.Action<Vector3> OnDisconnectFromGroundParent;
     private int geometryCollisionLayers;
     private int MovingGeometryLayer;
     private Vector3 lastMoveVector;
     private bool stuckBetweenSlopes;
     private CapsuleCollider capsuleCollider;
-    private MovingObject groundParent;
+    public MovingObject groundParent;
+    private Vector3 lastGroundParentVelocity;
 
     // Use this for initialization
     void Start() {
@@ -181,10 +183,6 @@ public class BetterCharacterController : MonoBehaviour {
                 }
             }
         }
-        else
-        {
-            ClearGroundParent();
-        }
         if (!groundParentFound)
         {
             ClearGroundParent();
@@ -193,7 +191,7 @@ public class BetterCharacterController : MonoBehaviour {
     }
 
     ///<summary>Move the character in a vector direction, with corrections for platform edges and steep slopes</summary>
-    public void Move(Vector3 moveVector, bool jump = false)
+    public void Move(Vector3 moveVector, bool jump = false, bool doKeepOnGroundMove = true)
     {
         lastMoveVector = moveVector;
         float startY = transform.position.y;
@@ -304,7 +302,7 @@ public class BetterCharacterController : MonoBehaviour {
             else
                 AttemptSetPosition(transform.position + newMoveVector);
         }
-        if (isGrounded && stairLocations.Length == 0 && !jump)
+        if (isGrounded && stairLocations.Length == 0 && !jump && doKeepOnGroundMove)
         {
             DoKeepOnGroundMove();
         }
@@ -388,7 +386,7 @@ public class BetterCharacterController : MonoBehaviour {
         return (Vector3.Dot(normal, Vector3.up) > cosSlopeLimit);
     }
 
-    private void DoKeepOnGroundMove()
+    private void DoKeepOnGroundMove() // Used to drop the character's position when walking down a slope
     {
         Vector3 lastMoveVectorXZ = lastMoveVector;
         lastMoveVectorXZ.y = 0;
@@ -705,12 +703,17 @@ public class BetterCharacterController : MonoBehaviour {
         if (!groundParent) return;
         groundParent.OnPositionMoved -= MoveWithGroundParent;
         groundParent = null;
+        if (OnDisconnectFromGroundParent != null)
+        {
+            OnDisconnectFromGroundParent(lastGroundParentVelocity);
+        }
     }
 
     private void MoveWithGroundParent(Vector3 velocity)
     {
-        velocity.y -= skinWidth; //Move the player down slightly less to guarantee they stay on the ground
-        if (velocity.y > 0) velocity.y = 0;
-        Move(velocity);
+        Vector3 newVelocity = velocity;
+        Move(newVelocity, false, false);
+        //AttemptSetPosition(transform.position + velocity);
+        lastGroundParentVelocity = velocity / Time.fixedDeltaTime;
     }
 }
